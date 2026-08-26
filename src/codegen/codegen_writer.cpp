@@ -324,6 +324,7 @@ bool CodegenWriter::write(bool force) {
 
 void CodegenWriter::SaveCurrentOutData(const std::string_view name) {
   if (!out.empty()) {
+    NormalizeGeneratedText(out);
     pendingWrites.emplace_back(std::string(name), std::move(out));
     out.clear();
   }

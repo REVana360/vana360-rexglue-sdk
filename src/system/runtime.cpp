@@ -36,6 +36,21 @@ REXCVAR_DEFINE_STRING(metadata_root, "", "Runtime", "Override metadata path");
 
 namespace rex {
 
+std::vector<uint8_t> ApplyNetworkSendHook(const NetworkHooks& hooks, uint32_t caller,
+                                          uint16_t peer_port,
+                                          std::span<const uint8_t> source) {
+  std::vector<uint8_t> copy(source.begin(), source.end());
+  if (hooks.before_send) {
+    hooks.before_send(caller, peer_port, copy);
+  }
+  return copy;
+}
+
+bool ConsumeNetworkSendHook(const NetworkHooks& hooks, uint32_t caller, uint16_t peer_port,
+                            std::span<const uint8_t> bytes) {
+  return hooks.consume_send && hooks.consume_send(caller, peer_port, bytes);
+}
+
 // Static instance for global access
 Runtime* Runtime::instance_ = nullptr;
 
@@ -113,6 +128,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   thread::EnableAffinityConfiguration();
 
   tool_mode_ = config.tool_mode;
+  network_hooks_ = std::move(config.network_hooks);
 
   // Create memory system first
   memory_ = std::make_unique<memory::Memory>();

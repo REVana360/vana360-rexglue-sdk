@@ -25,6 +25,7 @@
 #include <rex/kernel/xboxkrnl/threading.h>
 #include <rex/logging.h>
 #include <rex/hook.h>
+#include <rex/runtime.h>
 #include <rex/types.h>
 #include <rex/string.h>
 #include <rex/system/kernel_state.h>
@@ -49,6 +50,30 @@ namespace kernel {
 namespace xam {
 using namespace rex::system;
 using namespace rex::system::xam;
+
+constexpr u32 kInvalidSocketHandle = ~u32{0};
+
+// Guest Winsock code treats SOCKET as signed and reserves -1 for failure.
+// Keep the high-bit object handle internal and expose only its descriptor.
+constexpr u32 ToGuestSocketHandle(u32 object_handle) {
+  return object_handle - XObject::kHandleBase;
+}
+
+constexpr u32 ToObjectSocketHandle(u32 socket_handle) {
+  return socket_handle == kInvalidSocketHandle ? socket_handle
+                                               : socket_handle + XObject::kHandleBase;
+}
+
+object_ref<XSocket> LookupSocket(u32 socket_handle) {
+  return REX_KERNEL_OBJECTS()->LookupObject<XSocket>(
+      ToObjectSocketHandle(socket_handle));
+}
+
+static_assert(static_cast<i32>(
+                  ToGuestSocketHandle(XObject::kHandleBase + 4)) >= 0);
+static_assert(ToObjectSocketHandle(
+                  ToGuestSocketHandle(XObject::kHandleBase + 4)) ==
+              XObject::kHandleBase + 4);
 
 // https://github.com/G91/TitanOffLine/blob/1e692d9bb9dfac386d08045ccdadf4ae3227bb5e/xkelib/xam/xamNet.h
 enum {
@@ -183,6 +208,9 @@ struct XNetStartupParams {
 XNetStartupParams xnet_startup_params = {};
 
 u32 NetDll_XNetStartup_entry(u32 caller, ppc_ptr_t<XNetStartupParams> params) {
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO("Guest XNet startup: caller={:08X}", caller);
+  }
   if (params) {
     assert_true(params->cfgSizeOfStruct == sizeof(XNetStartupParams));
     std::memcpy(&xnet_startup_params, params, sizeof(XNetStartupParams));
@@ -272,6 +300,11 @@ u32 NetDll_WSAStartup_entry(u32 caller, u16 version, ppc_ptr_t<X_WSADATA> data_p
   }
 #endif
 
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO("Guest WSA startup: version={:04X} result={} caller={:08X}",
+                 version, ret, caller);
+  }
+
   // DEBUG
   /*
   auto xam = REX_KERNEL_STATE()->GetKernelModule<XamModule>("xam.xex");
@@ -323,7 +356,7 @@ u32 NetDll_WSASendTo_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XWSABUF> buf
   assert(!overlapped);
   assert(!completion_routine);
 
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -510,11 +543,32 @@ u32 NetDll_XNetGetEthernetLinkStatus_entry(u32 caller) {
 }
 
 u32 NetDll_XNetDnsLookup_entry(u32 caller, mapped_string host, u32 event_handle, mapped_u32 pdns) {
-  // TODO(gibbed): actually implement this
   if (pdns) {
     auto dns_guest = REX_KERNEL_MEMORY()->SystemHeapAlloc(sizeof(XNDNS));
     auto dns = REX_KERNEL_MEMORY()->TranslateVirtual<XNDNS*>(dns_guest);
+    std::memset(dns, 0, sizeof(*dns));
     dns->status = 1;  // non-zero = error
+    if (host) {
+      if (REXCVAR_GET(guest_network_trace)) {
+        REXKRNL_INFO("Guest XNet DNS lookup requested: host={} caller={:08X}",
+                     host.value(), caller);
+      }
+      if (auto* runtime = Runtime::instance();
+          runtime && runtime->network_hooks().resolve_ipv4) {
+        const auto resolved =
+            runtime->network_hooks().resolve_ipv4(caller, host.value());
+        if (resolved) {
+          dns->status = 0;
+          dns->cina = 1;
+          dns->aina[0].s_addr = htonl(*resolved);
+          if (REXCVAR_GET(guest_network_trace)) {
+            REXKRNL_INFO(
+                "Guest XNet DNS lookup: host={} caller={:08X} address={:08X}",
+                host.value(), caller, *resolved);
+          }
+        }
+      }
+    }
     *pdns = dns_guest;
   }
   if (event_handle) {
@@ -589,14 +643,25 @@ u32 NetDll_socket_entry(u32 caller, u32 af, u32 type, u32 protocol) {
 
     uint32_t error = xboxkrnl::xeRtlNtStatusToDosError(result);
     XThread::SetLastError(error);
+    if (REXCVAR_GET(guest_network_trace)) {
+      REXKRNL_INFO(
+          "Guest socket failed: family={} type={} protocol={} caller={:08X}",
+          af, type, protocol, caller);
+    }
     return -1;
   }
 
-  return socket->handle();
+  const u32 socket_handle = ToGuestSocketHandle(socket->handle());
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO(
+        "Guest socket created: handle={:08X} family={} type={} protocol={} caller={:08X}",
+        socket_handle, af, type, protocol, caller);
+  }
+  return socket_handle;
 }
 
 u32 NetDll_closesocket_entry(u32 caller, u32 socket_handle) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -611,7 +676,7 @@ u32 NetDll_closesocket_entry(u32 caller, u32 socket_handle) {
 }
 
 i32 NetDll_shutdown_entry(u32 caller, u32 socket_handle, i32 how) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -632,7 +697,7 @@ i32 NetDll_shutdown_entry(u32 caller, u32 socket_handle, i32 how) {
 
 u32 NetDll_setsockopt_entry(u32 caller, u32 socket_handle, u32 level, u32 optname,
                             mapped_void optval_ptr, u32 optlen) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -644,16 +709,45 @@ u32 NetDll_setsockopt_entry(u32 caller, u32 socket_handle, u32 level, u32 optnam
 }
 
 u32 NetDll_ioctlsocket_entry(u32 caller, u32 socket_handle, u32 cmd, mapped_void arg_ptr) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
     return -1;
   }
 
-  X_STATUS status = socket->IOControl(cmd, arg_ptr);
+  // Xbox socket ioctl scalar arguments are big-endian guest values, while
+  // the host socket API reads and writes native-endian u_long values.
+  constexpr u32 kFionread = 0x4004667F;
+  constexpr u32 kFionbio = 0x8004667E;
+  u32 native_arg = 0;
+  uint8_t* native_arg_ptr = arg_ptr;
+  auto* guest_arg = reinterpret_cast<be_u32*>(arg_ptr.host_address());
+  if (guest_arg && (cmd == kFionread || cmd == kFionbio)) {
+    native_arg = *guest_arg;
+    native_arg_ptr = reinterpret_cast<uint8_t*>(&native_arg);
+  }
+
+  X_STATUS status = socket->IOControl(cmd, native_arg_ptr);
+  if (XSUCCEEDED(status) && guest_arg && cmd == kFionread) {
+    *guest_arg = native_arg;
+  }
+#if REX_PLATFORM_WIN32
+  const uint32_t native_error = XFAILED(status) ? WSAGetLastError() : 0;
+#else
+  const uint32_t native_error = 0;
+#endif
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO(
+        "Guest socket ioctl: handle={:08X} command={:08X} caller={:08X} "
+        "status={:08X} native_error={} scalar={}",
+        socket_handle, cmd, caller, static_cast<uint32_t>(status), native_error,
+        native_arg);
+  }
   if (XFAILED(status)) {
-    XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(status));
+    XThread::SetLastError(native_error != 0
+                              ? native_error
+                              : xboxkrnl::xeRtlNtStatusToDosError(status));
     return -1;
   }
 
@@ -662,7 +756,7 @@ u32 NetDll_ioctlsocket_entry(u32 caller, u32 socket_handle, u32 cmd, mapped_void
 }
 
 u32 NetDll_bind_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR_IN> name, u32 namelen) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -680,7 +774,7 @@ u32 NetDll_bind_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR_IN> nam
 }
 
 u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> name, u32 namelen) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -688,9 +782,30 @@ u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> nam
   }
 
   N_XSOCKADDR native_name(name);
+  if (auto* runtime = Runtime::instance();
+      runtime && runtime->network_hooks().before_connect) {
+    runtime->network_hooks().before_connect(caller, native_name, namelen);
+  }
+  uint16_t peer_port = 0;
+  if (native_name.address_family == XSocket::X_AF_INET &&
+      namelen >= sizeof(N_XSOCKADDR_IN)) {
+    peer_port = reinterpret_cast<N_XSOCKADDR_IN&>(native_name).sin_port;
+  }
   X_STATUS status = socket->Connect(&native_name, namelen);
+#if REX_PLATFORM_WIN32
+  const uint32_t native_error = XFAILED(status) ? WSAGetLastError() : 0;
+#else
+  const uint32_t native_error = 0;
+#endif
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO(
+        "Guest connect: handle={:08X} port={} caller={:08X} status={:08X} native_error={}",
+        socket_handle, peer_port, caller, static_cast<uint32_t>(status), native_error);
+  }
   if (XFAILED(status)) {
-    XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(status));
+    XThread::SetLastError(native_error != 0
+                              ? native_error
+                              : xboxkrnl::xeRtlNtStatusToDosError(status));
     return -1;
   }
 
@@ -698,7 +813,7 @@ u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> nam
 }
 
 u32 NetDll_listen_entry(u32 caller, u32 socket_handle, i32 backlog) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -722,7 +837,7 @@ u32 NetDll_accept_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> addr
     return -1;
   }
 
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
@@ -737,7 +852,7 @@ u32 NetDll_accept_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> addr
     std::memcpy(addr_ptr->sa_data, native_addr.sa_data, *addrlen_ptr - 2);
     *addrlen_ptr = native_len;
 
-    return new_socket->handle();
+    return ToGuestSocketHandle(new_socket->handle());
   } else {
     return -1;
   }
@@ -761,8 +876,8 @@ struct host_set {
         this->count = i;
         break;
       }
-      // Convert from Xenia -> native
-      auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+      // Resolve the guest socket descriptor to its kernel object.
+      auto socket = LookupSocket(socket_handle);
       assert_not_null(socket);
       this->sockets[i] = socket;
     }
@@ -772,7 +887,8 @@ struct host_set {
     guest_set->fd_count = 0;
     for (uint32_t i = 0; i < this->count; ++i) {
       auto socket = this->sockets[i];
-      guest_set->fd_array[guest_set->fd_count++] = socket->handle();
+      guest_set->fd_array[guest_set->fd_count++] =
+          ToGuestSocketHandle(socket->handle());
     }
   }
 
@@ -839,84 +955,147 @@ i32 NetDll_select_entry(i32 caller, i32 nfds, ppc_ptr_t<x_fd_set> readfds,
     host_exceptfds.UpdateFrom(&native_exceptfds);
     host_exceptfds.Store(exceptfds);
   }
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO(
+        "Guest select: read={} write={} except={} caller={:08X} result={}",
+        host_readfds.count, host_writefds.count, host_exceptfds.count, caller,
+        ret);
+  }
 
   // TODO(gibbed): modify ret to be what's actually copied to the guest fd_sets?
   return ret;
 }
 
 u32 NetDll_recv_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len, u32 flags) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
     return -1;
   }
 
-  return socket->Recv(buf_ptr, buf_len, flags);
+  const int received = socket->Recv(buf_ptr, buf_len, flags);
+  uint32_t error_code = 0;
+  if (received == -1) {
+#if REX_PLATFORM_WIN32
+    error_code = WSAGetLastError();
+#endif
+    XThread::SetLastError(error_code);
+  }
+  if (REXCVAR_GET(guest_network_trace)) {
+    REXKRNL_INFO(
+        "Guest recv: handle={:08X} requested={} received={} port={} "
+        "caller={:08X} native_error={}",
+        socket_handle, buf_len, received, socket->peer_port(), caller,
+        error_code);
+  }
+  return received;
 }
 
 u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len,
                           u32 flags, ppc_ptr_t<XSOCKADDR_IN> from_ptr, mapped_u32 fromlen_ptr) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
     return -1;
   }
 
-  N_XSOCKADDR_IN native_from;
+  N_XSOCKADDR_IN native_from{};
   if (from_ptr) {
     native_from = *from_ptr;
   }
   uint32_t native_fromlen = fromlen_ptr ? fromlen_ptr.value() : 0;
-  int ret =
-      socket->RecvFrom(buf_ptr, buf_len, flags, &native_from, fromlen_ptr ? &native_fromlen : 0);
+  int ret = socket->RecvFrom(buf_ptr, buf_len, flags, from_ptr ? &native_from : nullptr,
+                             fromlen_ptr ? &native_fromlen : nullptr);
 
-  if (from_ptr) {
+  uint32_t error_code = 0;
+  if (ret == -1) {
+#if REX_PLATFORM_WIN32
+    error_code = WSAGetLastError();
+#endif
+    XThread::SetLastError(error_code);
+  }
+
+  if (ret >= 0 && from_ptr) {
     from_ptr->sin_family = native_from.sin_family;
     from_ptr->sin_port = native_from.sin_port;
     from_ptr->sin_addr = native_from.sin_addr;
     std::memset(from_ptr->x_sin_zero, 0, sizeof(from_ptr->x_sin_zero));
   }
-  if (fromlen_ptr) {
+  if (ret >= 0 && fromlen_ptr) {
     *fromlen_ptr = native_fromlen;
   }
 
-  if (ret == -1) {
-// TODO: Better way of getting the error code
-#if REX_PLATFORM_WIN32
-    uint32_t error_code = WSAGetLastError();
-    XThread::SetLastError(error_code);
-#else
-    XThread::SetLastError(0x0);
-#endif
+  if (REXCVAR_GET(guest_network_trace) && (ret >= 0 || error_code != 10035)) {
+    const uint32_t ipv4 = native_from.sin_addr;
+    REXKRNL_INFO(
+        "Guest recvfrom: handle={:08X} requested={} received={} "
+        "source={}.{}.{}.{}:{} source_length={} caller={:08X} "
+        "native_error={}",
+        socket_handle, buf_len, ret, (ipv4 >> 24) & 0xFF, (ipv4 >> 16) & 0xFF, (ipv4 >> 8) & 0xFF,
+        ipv4 & 0xFF, static_cast<uint16_t>(native_from.sin_port), native_fromlen, caller,
+        error_code);
   }
 
   return ret;
 }
 
 u32 NetDll_send_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len, u32 flags) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
     return -1;
   }
 
-  return socket->Send(buf_ptr, buf_len, flags);
+  auto* runtime = Runtime::instance();
+  if (!runtime || (!runtime->network_hooks().before_send &&
+                   !runtime->network_hooks().consume_send)) {
+    return socket->Send(buf_ptr, buf_len, flags);
+  }
+
+  auto bytes = ApplyNetworkSendHook(
+      runtime->network_hooks(), caller, socket->peer_port(),
+      std::span<const uint8_t>(
+          static_cast<const uint8_t*>(buf_ptr.host_address()), buf_len));
+  if (ConsumeNetworkSendHook(runtime->network_hooks(), caller, socket->peer_port(), bytes)) {
+    return buf_len;
+  }
+  return socket->Send(bytes.data(), static_cast<uint32_t>(bytes.size()), flags);
 }
 
 u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len, u32 flags,
                         ppc_ptr_t<XSOCKADDR_IN> to_ptr, u32 to_len) {
-  auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
+  auto socket = LookupSocket(socket_handle);
   if (!socket) {
     // WSAENOTSOCK
     XThread::SetLastError(0x2736);
     return -1;
   }
 
-  N_XSOCKADDR_IN native_to(to_ptr);
-  return socket->SendTo(buf_ptr, buf_len, flags, &native_to, to_len);
+  N_XSOCKADDR_IN native_to{};
+  if (to_ptr) {
+    native_to = *to_ptr;
+  }
+  const int sent = socket->SendTo(buf_ptr, buf_len, flags, to_ptr ? &native_to : nullptr, to_len);
+  uint32_t error_code = 0;
+  if (sent == -1) {
+#if REX_PLATFORM_WIN32
+    error_code = WSAGetLastError();
+#endif
+    XThread::SetLastError(error_code);
+  }
+  if (REXCVAR_GET(guest_network_trace)) {
+    const uint32_t ipv4 = native_to.sin_addr;
+    REXKRNL_INFO(
+        "Guest sendto: handle={:08X} requested={} sent={} "
+        "target={}.{}.{}.{}:{} target_length={} caller={:08X} "
+        "native_error={}",
+        socket_handle, buf_len, sent, (ipv4 >> 24) & 0xFF, (ipv4 >> 16) & 0xFF, (ipv4 >> 8) & 0xFF,
+        ipv4 & 0xFF, static_cast<uint16_t>(native_to.sin_port), to_len, caller, error_code);
+  }
+  return sent;
 }
 
 u32 NetDll___WSAFDIsSet_entry(u32 socket_handle, ppc_ptr_t<x_fd_set> fd_set) {

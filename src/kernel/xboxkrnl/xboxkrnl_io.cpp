@@ -169,7 +169,13 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
 
   *handle_out = handle;
   if (XFAILED(result)) {
-    REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
+    uint32_t caller_address = 0;
+    auto* thread = XThread::GetCurrentThread();
+    if (thread && thread->thread_state() && thread->thread_state()->context()) {
+      caller_address = static_cast<uint32_t>(thread->thread_state()->context()->lr);
+    }
+    REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' caller={:08X} -> {:#x}", target_path,
+                        caller_address, result);
   } else {
     REXKRNL_IMPORT_RESULT("NtCreateFile", "{:#x} handle={:#x}", result, handle);
   }

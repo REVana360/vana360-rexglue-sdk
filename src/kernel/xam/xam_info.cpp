@@ -224,16 +224,21 @@ u32 XamGetExecutionId_entry(mapped_u32 info_ptr) {
 }
 
 u32 XamLoaderSetLaunchData_entry(mapped_void data, u32 size) {
+  REXKRNL_IMPORT_TRACE("XamLoaderSetLaunchData", "size={}", size);
   auto xam = REX_KERNEL_STATE()->GetKernelModule<XamModule>("xam.xex");
   auto& loader_data = xam->loader_data();
   loader_data.launch_data_present = size ? true : false;
   loader_data.launch_data.resize(size);
   std::memcpy(loader_data.launch_data.data(), data, size);
+  REXKRNL_IMPORT_RESULT("XamLoaderSetLaunchData", "present={} size={}",
+                        loader_data.launch_data_present, loader_data.launch_data.size());
   return 0;
 }
 
 u32 XamLoaderGetLaunchDataSize_entry(mapped_u32 size_ptr) {
+  REXKRNL_IMPORT_TRACE("XamLoaderGetLaunchDataSize", "size_ptr={}", static_cast<bool>(size_ptr));
   if (!size_ptr) {
+    REXKRNL_IMPORT_RESULT("XamLoaderGetLaunchDataSize", "invalid parameter");
     return X_ERROR_INVALID_PARAMETER;
   }
 
@@ -241,22 +246,28 @@ u32 XamLoaderGetLaunchDataSize_entry(mapped_u32 size_ptr) {
   auto& loader_data = xam->loader_data();
   if (!loader_data.launch_data_present) {
     *size_ptr = 0;
+    REXKRNL_IMPORT_RESULT("XamLoaderGetLaunchDataSize", "not found");
     return X_ERROR_NOT_FOUND;
   }
 
   *size_ptr = uint32_t(xam->loader_data().launch_data.size());
+  REXKRNL_IMPORT_RESULT("XamLoaderGetLaunchDataSize", "size={}", uint32_t(*size_ptr));
   return X_ERROR_SUCCESS;
 }
 
 u32 XamLoaderGetLaunchData_entry(mapped_void buffer_ptr, u32 buffer_size) {
+  REXKRNL_IMPORT_TRACE("XamLoaderGetLaunchData", "buffer_size={}", buffer_size);
   auto xam = REX_KERNEL_STATE()->GetKernelModule<XamModule>("xam.xex");
   auto& loader_data = xam->loader_data();
   if (!loader_data.launch_data_present) {
+    REXKRNL_IMPORT_RESULT("XamLoaderGetLaunchData", "not found");
     return X_ERROR_NOT_FOUND;
   }
 
   uint32_t copy_size = std::min(uint32_t(loader_data.launch_data.size()), uint32_t(buffer_size));
   std::memcpy(buffer_ptr, loader_data.launch_data.data(), copy_size);
+  REXKRNL_IMPORT_RESULT("XamLoaderGetLaunchData", "stored_size={} copied_size={}",
+                        loader_data.launch_data.size(), copy_size);
   return X_ERROR_SUCCESS;
 }
 

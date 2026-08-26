@@ -18,6 +18,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <rex/cvar.h>
 #include <rex/embedded_metadata.h>
@@ -51,6 +53,7 @@ class ExportResolver;
 namespace system {
 class KernelState;
 class XThread;
+struct N_XSOCKADDR;
 }  // namespace system
 namespace ui {
 class WindowedAppContext;
@@ -63,6 +66,23 @@ class ImGuiDrawer;
 /// library decoupled from concrete backend implementations.
 /// Audio uses a factory because AudioSystem requires a FunctionDispatcher* at
 /// construction time, which is only available during Setup().
+struct NetworkHooks {
+  // Returns an IPv4 address in host byte order when the title host should be
+  // resolved by the embedding application.
+  std::function<std::optional<uint32_t>(uint32_t caller, std::string_view host)> resolve_ipv4;
+  std::function<void(uint32_t caller, system::N_XSOCKADDR& address, int address_length)>
+      before_connect;
+  std::function<void(uint32_t caller, uint16_t peer_port, std::span<uint8_t> bytes)> before_send;
+  std::function<bool(uint32_t caller, uint16_t peer_port, std::span<const uint8_t> bytes)>
+      consume_send;
+};
+
+std::vector<uint8_t> ApplyNetworkSendHook(const NetworkHooks& hooks, uint32_t caller,
+                                          uint16_t peer_port,
+                                          std::span<const uint8_t> source);
+bool ConsumeNetworkSendHook(const NetworkHooks& hooks, uint32_t caller, uint16_t peer_port,
+                            std::span<const uint8_t> bytes);
+
 struct RuntimeConfig {
   std::unique_ptr<system::IGraphicsSystem> graphics;
   // GPU emulation plugin loaded by ReXApp when `graphics` is empty
@@ -71,6 +91,7 @@ struct RuntimeConfig {
   std::function<std::unique_ptr<system::IAudioSystem>(runtime::FunctionDispatcher*)> audio_factory;
   std::function<std::unique_ptr<system::IInputSystem>(bool tool_mode)> input_factory;
   std::function<void(Runtime*, system::KernelState*)> kernel_init;
+  NetworkHooks network_hooks;
   bool tool_mode = false;
 };
 
@@ -120,6 +141,7 @@ class Runtime {
   system::IGraphicsSystem* graphics_system() const { return graphics_system_.get(); }
   system::IAudioSystem* audio_system() const { return audio_system_.get(); }
   system::IInputSystem* input_system() const { return input_system_.get(); }
+  const NetworkHooks& network_hooks() const { return network_hooks_; }
 
   // FunctionDispatcher for guest function dispatch and interrupt execution
   runtime::FunctionDispatcher* function_dispatcher() const { return function_dispatcher_.get(); }
@@ -203,6 +225,7 @@ class Runtime {
   std::unique_ptr<system::IAudioSystem> audio_system_;
   std::unique_ptr<system::IInputSystem> input_system_;
   std::unique_ptr<runtime::ExportResolver> export_resolver_;
+  NetworkHooks network_hooks_;
 
   static Runtime* instance_;
 };

@@ -16,10 +16,42 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <rex/filesystem.h>
 
 namespace rex::codegen {
+
+inline void NormalizeGeneratedText(std::string& text) {
+  std::string normalized;
+  normalized.reserve(text.size());
+  size_t read = 0;
+
+  while (read < text.size()) {
+    const size_t lineEnd = text.find('\n', read);
+    const size_t contentEnd = lineEnd == std::string::npos ? text.size() : lineEnd;
+    size_t trimmedEnd = contentEnd;
+    while (trimmedEnd > read && (text[trimmedEnd - 1] == ' ' || text[trimmedEnd - 1] == '\t')) {
+      --trimmedEnd;
+    }
+
+    normalized.append(text, read, trimmedEnd - read);
+
+    if (lineEnd == std::string::npos)
+      break;
+
+    normalized.push_back('\n');
+    read = lineEnd + 1;
+  }
+
+  while (!normalized.empty() && normalized.back() == '\n') {
+    normalized.pop_back();
+  }
+  if (!normalized.empty()) {
+    normalized.push_back('\n');
+  }
+  text = std::move(normalized);
+}
 
 inline std::optional<std::string> ReadFileBytes(const std::filesystem::path& path) {
   FILE* f = rex::filesystem::OpenFile(path, "rb");

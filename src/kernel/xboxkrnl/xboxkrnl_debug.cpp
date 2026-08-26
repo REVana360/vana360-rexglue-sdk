@@ -26,6 +26,7 @@ namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
 
 void DbgBreakPoint_entry() {
+  REXKRNL_ERROR("Guest DbgBreakPoint invoked");
   rex::debug::Break();
 }
 
@@ -123,10 +124,20 @@ void HandleCppException(ppc_ptr_t<X_EXCEPTION_RECORD> record) {
   auto catchable_types = REX_KERNEL_MEMORY()->TranslateVirtual<x_s__CatchableTypeArray*>(
       throw_info->catchable_type_array_ptr);
 
+  REXKRNL_ERROR(
+      "Guest C++ exception raised: address=0x{:08X} flags=0x{:08X} "
+      "parameters={}",
+      uint32_t(record->exception_address), uint32_t(record->exception_flags),
+      uint32_t(record->number_parameters));
   rex::debug::Break();
 }
 
 void RtlRaiseException_entry(ppc_ptr_t<X_EXCEPTION_RECORD> record) {
+  REXKRNL_ERROR(
+      "Guest RtlRaiseException: code=0x{:08X} address=0x{:08X} "
+      "flags=0x{:08X} parameters={}",
+      uint32_t(record->code), uint32_t(record->exception_address),
+      uint32_t(record->exception_flags), uint32_t(record->number_parameters));
   switch (record->code) {
     case 0x406D1388: {
       HandleSetThreadName(record);

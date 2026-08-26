@@ -13,9 +13,13 @@
 #include <cstring>
 #include <queue>
 
+#include <rex/cvar.h>
 #include <rex/math.h>
 #include <rex/system/xobject.h>
 #include <rex/types.h>
+
+REXCVAR_DECLARE(bool, guest_network_enabled);
+REXCVAR_DECLARE(bool, guest_network_trace);
 
 namespace rex::system {
 
@@ -95,6 +99,7 @@ class XSocket : public XObject {
 
   uint64_t native_handle() const { return native_handle_; }
   uint16_t bound_port() const { return bound_port_; }
+  uint16_t peer_port() const { return peer_port_; }
 
   X_STATUS Initialize(AddressFamily af, Type type, Protocol proto);
   X_STATUS Close();
@@ -138,6 +143,7 @@ class XSocket : public XObject {
 
   bool bound_ = false;  // Explicitly bound to an IP address?
   uint16_t bound_port_ = 0;
+  uint16_t peer_port_ = 0;
 
   bool broadcast_socket_ = false;
 

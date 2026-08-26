@@ -252,3 +252,22 @@ TEST_CASE("Every name a recomp file calls is declared in its header", "[codegen_
     }
   }
 }
+
+TEST_CASE("Generated files have normalized trailing whitespace", "[codegen_writer]") {
+  WriterFixture fx("whitespace");
+
+  CodegenWriter writer(*fx.ctx);
+  REQUIRE(writer.write(false));
+
+  for (const auto& entry : fs::directory_iterator(fx.outputDir())) {
+    if (!entry.is_regular_file())
+      continue;
+
+    const std::string content = ReadAll(entry.path());
+    INFO("file " << entry.path().filename().string());
+    CHECK(content.ends_with('\n'));
+    CHECK_FALSE(content.ends_with("\n\n"));
+    CHECK(content.find(" \n") == std::string::npos);
+    CHECK(content.find("\t\n") == std::string::npos);
+  }
+}

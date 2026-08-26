@@ -40,14 +40,14 @@ static int content_device_id_ = 0;
 
 ContentPackage::ContentPackage(KernelState* kernel_state, const std::string_view root_name,
                                const XCONTENT_AGGREGATE_DATA& data,
-                               const std::filesystem::path& package_path)
+                               const std::filesystem::path& package_path, bool read_only)
     : kernel_state_(kernel_state), root_name_(root_name), package_path_(package_path), license_(0) {
   device_path_ = fmt::format("\\Device\\Content\\{0}\\", ++content_device_id_);
   content_data_ = data;
 
   auto fs = kernel_state_->file_system();
-  auto device = std::make_unique<rex::filesystem::HostPathDevice>(device_path_, package_path, false,
-                                                                  /*allow_share_delete=*/true);
+  auto device = std::make_unique<rex::filesystem::HostPathDevice>(
+      device_path_, package_path, read_only, /*allow_share_delete=*/!read_only);
   device->Initialize();
   fs->RegisterDevice(std::move(device));
   fs->RegisterSymbolicLink(root_name_ + ":", device_path_);
@@ -101,6 +101,14 @@ std::filesystem::path ContentManager::ResolvePackageRoot(uint64_t xuid, XContent
 
 std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
                                                          const XCONTENT_AGGREGATE_DATA& data) {
+  auto default_path = ResolveDefaultPackagePath(xuid, data);
+  auto global_lock = global_critical_region_.Acquire();
+  auto external = external_content_paths_.find(default_path);
+  return external == external_content_paths_.end() ? default_path : external->second;
+}
+
+std::filesystem::path ContentManager::ResolveDefaultPackagePath(
+    uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
   uint64_t used_xuid = (data.xuid != uint64_t(-1) && data.xuid != 0) ? uint64_t(data.xuid) : xuid;
 
   // DLCs are stored in common directory
@@ -112,6 +120,11 @@ std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
   // content_root/xuid/title_id/content_type/data_file_name/
   auto package_root = ResolvePackageRoot(used_xuid, data.content_type, data.title_id);
   return package_root / rex::to_path(data.file_name());
+}
+
+bool ContentManager::IsExternalContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
+  auto global_lock = global_critical_region_.Acquire();
+  return external_content_paths_.contains(ResolveDefaultPackagePath(xuid, data));
 }
 
 std::filesystem::path ContentManager::ResolvePackageHeaderPath(const std::string_view file_name,
@@ -179,13 +192,27 @@ std::unique_ptr<ContentPackage> ContentManager::ResolvePackage(
   if (!std::filesystem::exists(package_path)) {
     return nullptr;
   }
-  auto package = std::make_unique<ContentPackage>(kernel_state_, root_name, data, package_path);
+  auto package = std::make_unique<ContentPackage>(kernel_state_, root_name, data, package_path,
+                                                  IsExternalContent(xuid, data));
   return package;
 }
 
 bool ContentManager::ContentExists(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
   auto path = ResolvePackagePath(xuid, data);
   return std::filesystem::exists(path);
+}
+
+X_RESULT ContentManager::RegisterExternalContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
+                                                 const std::filesystem::path& package_path) {
+  std::error_code ec;
+  auto absolute_path = std::filesystem::absolute(package_path, ec);
+  if (ec || !std::filesystem::is_directory(absolute_path, ec) || ec) {
+    return X_ERROR_PATH_NOT_FOUND;
+  }
+
+  auto global_lock = global_critical_region_.Acquire();
+  external_content_paths_.insert_or_assign(ResolveDefaultPackagePath(xuid, data), absolute_path);
+  return X_ERROR_SUCCESS;
 }
 
 X_RESULT ContentManager::WriteContentHeaderFile(uint64_t xuid, XCONTENT_AGGREGATE_DATA data,
@@ -351,6 +378,9 @@ X_RESULT ContentManager::GetContentThumbnail(uint64_t xuid, const XCONTENT_AGGRE
 X_RESULT ContentManager::SetContentThumbnail(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
                                              std::vector<uint8_t> buffer) {
   auto global_lock = global_critical_region_.Acquire();
+  if (IsExternalContent(xuid, data)) {
+    return X_ERROR_ACCESS_DENIED;
+  }
   auto package_path = ResolvePackagePath(xuid, data);
   std::filesystem::create_directories(package_path);
   if (std::filesystem::exists(package_path)) {
@@ -366,6 +396,10 @@ X_RESULT ContentManager::SetContentThumbnail(uint64_t xuid, const XCONTENT_AGGRE
 
 X_RESULT ContentManager::DeleteContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
   auto global_lock = global_critical_region_.Acquire();
+
+  if (IsExternalContent(xuid, data)) {
+    return X_ERROR_ACCESS_DENIED;
+  }
 
   if (IsContentOpen(data)) {
     // TODO(Gliniak): Get real error code for this case.
@@ -417,6 +451,10 @@ X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
     }
   }
   delete package;
+
+  if (IsExternalContent(xuid, data)) {
+    return X_ERROR_ACCESS_DENIED;
+  }
 
   // Delete phase: remove package directory and .header file
   auto package_path = ResolvePackagePath(xuid, data);

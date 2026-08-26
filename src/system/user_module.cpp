@@ -21,6 +21,7 @@
 #include <rex/system/user_module.h>
 #include <rex/system/xex_module.h>
 #include <rex/system/xfile.h>
+#include <rex/system/xsocket.h>
 #include <rex/system/xthread.h>
 
 namespace rex::system {
@@ -238,6 +239,10 @@ X_STATUS UserModule::Unload() {
 
 uint32_t UserModule::GetProcAddressByOrdinal(uint16_t ordinal, uint32_t caller_address) {
   uint32_t guest_addr = xex_module()->GetProcAddress(ordinal);
+  if (guest_addr && REXCVAR_GET(guest_network_trace)) {
+    REXLOG_INFO("Guest module export target: module={} ordinal={} address={:08X}",
+                name(), ordinal, guest_addr);
+  }
   if (!guest_addr || !caller_address) {
     return guest_addr;
   }

@@ -21,6 +21,10 @@
 #include <rex/system/mmio_handler.h>
 #include <rex/types.h>
 
+#if REX_PLATFORM_WIN32
+#include <windows.h>
+#endif
+
 using namespace rex::arch;
 
 namespace rex::runtime {
@@ -417,8 +421,28 @@ bool MMIOHandler::ExceptionCallback(arch::Exception* ex) {
     // The address is not found within any range, so either a write watch or an
     // actual access violation.
     if (access_violation_callback_) {
-      return access_violation_callback_(std::move(lock), access_violation_callback_context_,
-                                        fault_host_address, is_write);
+      const bool handled = access_violation_callback_(
+          std::move(lock), access_violation_callback_context_, fault_host_address, is_write);
+      if (!handled) {
+#if REX_PLATFORM_WIN32
+        HMODULE host_module = nullptr;
+        const auto host_pc = static_cast<uintptr_t>(ex->pc());
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCSTR>(host_pc), &host_module)) {
+          char module_path[1024] = {};
+          GetModuleFileNameA(host_module, module_path, sizeof(module_path));
+          const auto module_base = reinterpret_cast<uintptr_t>(host_module);
+          REXLOG_ERROR("Unhandled guest access originated at host PC 0x{:016X} ({}+0x{:X})",
+                       host_pc, module_path, host_pc - module_base);
+        } else {
+          REXLOG_ERROR("Unhandled guest access originated at host PC 0x{:016X}", host_pc);
+        }
+#else
+        REXLOG_ERROR("Unhandled guest access originated at host PC 0x{:016X}", ex->pc());
+#endif
+      }
+      return handled;
     }
     return false;
   }

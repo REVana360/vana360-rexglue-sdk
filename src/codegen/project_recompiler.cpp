@@ -540,6 +540,7 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
 
     TemplateRegistry registry;
     auto dllCmakeContent = renderWithJson(registry, "codegen/dll_targets_cmake", dllTargetsData);
+    NormalizeGeneratedText(dllCmakeContent);
 
     auto dllCmakePath = outputPath / "dll_targets.cmake";
     switch (WriteIfChanged(dllCmakePath, dllCmakeContent)) {

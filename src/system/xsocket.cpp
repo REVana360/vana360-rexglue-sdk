@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include <rex/kernel/xam/module.h>
+#include <rex/logging.h>
 #include <rex/platform.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xsocket.h>
@@ -31,7 +32,19 @@
 #include <sys/socket.h>
 #endif
 
+REXCVAR_DEFINE_BOOL(guest_network_enabled, true, "Networking",
+                    "Allow guest code to create host network sockets")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(guest_network_trace, false, "Networking",
+                    "Log redacted guest socket operations")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace rex::system {
+
+static_assert(sizeof(N_XSOCKADDR_IN) == sizeof(sockaddr_in));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_family) == offsetof(sockaddr_in, sin_family));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_port) == offsetof(sockaddr_in, sin_port));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_addr) == offsetof(sockaddr_in, sin_addr));
 
 XSocket::XSocket(KernelState* kernel_state) : XObject(kernel_state, kObjectType) {}
 
@@ -43,6 +56,11 @@ XSocket::~XSocket() {
 }
 
 X_STATUS XSocket::Initialize(AddressFamily af, Type type, Protocol proto) {
+  if (!REXCVAR_GET(guest_network_enabled)) {
+    REXSYS_WARN("Guest socket creation blocked because guest networking is disabled");
+    return X_STATUS_UNSUCCESSFUL;
+  }
+
   af_ = af;
   type_ = type;
   proto_ = proto;
@@ -101,6 +119,13 @@ X_STATUS XSocket::IOControl(uint32_t cmd, uint8_t* arg_ptr) {
 }
 
 X_STATUS XSocket::Connect(N_XSOCKADDR* name, int name_len) {
+  if (name->address_family == X_AF_INET &&
+      name_len >= static_cast<int>(sizeof(N_XSOCKADDR_IN))) {
+    // A nonblocking connect normally reports WSAEWOULDBLOCK while the peer is
+    // already fixed. Preserve it for send/receive hooks during completion.
+    peer_port_ = reinterpret_cast<N_XSOCKADDR_IN*>(name)->sin_port;
+  }
+
   int ret = connect(native_handle_, (sockaddr*)name, name_len);
   if (ret < 0) {
     return X_STATUS_UNSUCCESSFUL;
@@ -186,18 +211,18 @@ int XSocket::RecvFrom(uint8_t* buf, uint32_t buf_len, uint32_t flags, N_XSOCKADD
   }
   */
 
-  sockaddr_in nfrom;
-  socklen_t nfromlen = sizeof(sockaddr_in);
+  sockaddr_in nfrom{};
+  socklen_t nfromlen = from_len ? static_cast<socklen_t>(*from_len) : 0;
   int ret = recvfrom(native_handle_, reinterpret_cast<char*>(buf), buf_len, flags,
-                     (sockaddr*)&nfrom, &nfromlen);
-  if (from) {
-    from->sin_family = nfrom.sin_family;
-    from->sin_addr = ntohl(nfrom.sin_addr.s_addr);  // BE <- BE
-    from->sin_port = nfrom.sin_port;
-    std::memset(from->x_sin_zero, 0, sizeof(from->x_sin_zero));
+                     from ? reinterpret_cast<sockaddr*>(&nfrom) : nullptr,
+                     from_len ? &nfromlen : nullptr);
+  if (ret >= 0 && from) {
+    // The native and normalized Xbox structures have the same wire layout:
+    // native-endian family followed by network-endian port and address.
+    std::memcpy(from, &nfrom, sizeof(nfrom));
   }
 
-  if (from_len) {
+  if (ret >= 0 && from_len) {
     *from_len = nfromlen;
   }
 
@@ -221,15 +246,12 @@ int XSocket::SendTo(uint8_t* buf, uint32_t buf_len, uint32_t flags, N_XSOCKADDR_
   }
   */
 
-  sockaddr_in nto;
+  sockaddr_in native_to{};
   if (to) {
-    nto.sin_addr.s_addr = to->sin_addr;
-    nto.sin_family = to->sin_family;
-    nto.sin_port = to->sin_port;
+    std::memcpy(&native_to, to, sizeof(native_to));
   }
-
   return sendto(native_handle_, reinterpret_cast<char*>(buf), buf_len, flags,
-                to ? (sockaddr*)&nto : nullptr, to_len);
+                to ? reinterpret_cast<sockaddr*>(&native_to) : nullptr, to_len);
 }
 
 bool XSocket::QueuePacket(uint32_t src_ip, uint16_t src_port, const uint8_t* buf, size_t len) {

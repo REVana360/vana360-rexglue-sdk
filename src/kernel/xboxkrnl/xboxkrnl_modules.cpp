@@ -17,6 +17,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/user_module.h>
 #include <rex/system/xexception.h>
+#include <rex/system/xsocket.h>
 #include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
 
@@ -179,6 +180,19 @@ u32 XexGetProcedureAddress_entry(mapped_void hmodule, u32 ordinal, mapped_u32 ou
     if (ptr) {
       *out_function_ptr = ptr;
       result = X_STATUS_SUCCESS;
+      if (is_string_name) {
+        REXKRNL_TRACE("XexGetProcedureAddress('{}', '{}') -> {:08X}", string_name,
+                      module->name(), ptr);
+      } else {
+        REXKRNL_TRACE("XexGetProcedureAddress({}, '{}') -> {:08X}", ordinal,
+                      module->name(), ptr);
+        if (REXCVAR_GET(guest_network_trace)) {
+          REXKRNL_INFO(
+              "Guest export resolved: module={} ordinal={} target={:08X} "
+              "caller={:08X}",
+              module->name(), ordinal, ptr, caller_address);
+        }
+      }
     } else {
       if (is_string_name) {
         REXKRNL_WARN("ERROR: XexGetProcedureAddress export '{}' in '{}' not found!", string_name,

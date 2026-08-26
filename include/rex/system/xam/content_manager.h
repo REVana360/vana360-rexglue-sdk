@@ -119,7 +119,8 @@ static_assert_size(XCONTENT_AGGREGATE_DATA, 0x148);
 class ContentPackage {
  public:
   ContentPackage(KernelState* kernel_state, const std::string_view root_name,
-                 const XCONTENT_AGGREGATE_DATA& data, const std::filesystem::path& package_path);
+                 const XCONTENT_AGGREGATE_DATA& data, const std::filesystem::path& package_path,
+                 bool read_only = false);
   ~ContentPackage();
 
   void LoadPackageLicenseMask(const std::filesystem::path header_path);
@@ -152,6 +153,10 @@ class ContentManager {
                                                  const XCONTENT_AGGREGATE_DATA& data);
 
   bool ContentExists(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
+  // Registers an existing host directory for direct XAM opens. The package is
+  // mounted read-only and must be registered before guest execution begins.
+  X_RESULT RegisterExternalContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
+                                   const std::filesystem::path& package_path);
   X_RESULT CreateContent(const std::string_view root_name, uint64_t xuid,
                          const XCONTENT_AGGREGATE_DATA& data);
   X_RESULT OpenContent(const std::string_view root_name, uint64_t xuid,
@@ -185,7 +190,10 @@ class ContentManager {
  private:
   std::filesystem::path ResolvePackageRoot(uint64_t xuid, XContentType content_type,
                                            uint32_t title_id = -1);
+  std::filesystem::path ResolveDefaultPackagePath(uint64_t xuid,
+                                                  const XCONTENT_AGGREGATE_DATA& data);
   std::filesystem::path ResolvePackagePath(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
+  bool IsExternalContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
   std::filesystem::path ResolvePackageHeaderPath(const std::string_view file_name, uint64_t xuid,
                                                  uint32_t title_id,
                                                  XContentType content_type) const;
@@ -203,6 +211,7 @@ class ContentManager {
   rex::thread::global_critical_region global_critical_region_;
   std::unordered_map<string::string_key_case, ContentPackage*, string::string_key_case::Hash>
       open_packages_;
+  std::unordered_map<std::filesystem::path, std::filesystem::path> external_content_paths_;
 };
 
 }  // namespace xam
