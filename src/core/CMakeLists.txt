@@ -110,10 +110,10 @@ target_link_libraries(rexcore
         simde
         tomlplusplus
         spdlog::spdlog
+        xxHash::xxhash
     PRIVATE
         disruptorplus
         utf8cpp
-        xxHash::xxhash
 )
 
 if(REXGLUE_USE_D3D12)
