@@ -86,18 +86,9 @@ def read_gitlinks(repo_root: Path, submodules: list[str]) -> dict[str, str]:
     return gitlinks
 
 
-def apply_fix(repo_root: Path, mismatches: list[Mismatch]) -> None:
-    for mismatch in mismatches:
-        path = repo_root / SUBMODULE_ROOT / mismatch.submodule
-        subprocess.run(["git", "-C", str(path), "fetch", "--tags", "origin"], check=True)
-        subprocess.run(["git", "-C", str(path), "checkout", mismatch.expected], check=True)
-        print(f"moved {mismatch.submodule} to {mismatch.expected}")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--fix", action="store_true", help="check the pinned commits out")
     args = parser.parse_args()
 
     config = parse_stack_config((args.repo_root / STACK_FILE).read_text(encoding="utf-8"))
@@ -115,18 +106,12 @@ def main() -> int:
         print(f"Vulkan stack matches SDK {config.sdk_version}")
         return 0
 
-    if args.fix:
-        apply_fix(args.repo_root, mismatches)
-        print("submodules moved; commit the gitlink changes")
-        return 0
-
     for mismatch in mismatches:
         print(
             f"error: {mismatch.submodule} is at {mismatch.actual or '<absent>'}, "
             f"expected {mismatch.expected} for SDK {config.sdk_version}",
             file=sys.stderr,
         )
-    print("run: python scripts/check_vulkan_stack.py --fix", file=sys.stderr)
     return 1
 
 

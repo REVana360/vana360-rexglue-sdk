@@ -14,6 +14,6 @@ jobs:
     uses: ./.github/workflows/_build-platform.yaml
     with:
       platform: mac-amd64
-      ref: ${{ github.ref }}
+      ref: ${{ github.sha }}
       publish_mode: release
     secrets: inherit

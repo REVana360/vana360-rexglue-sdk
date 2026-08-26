@@ -1,6 +1,12 @@
 > [!CAUTION]
 > This project is in early development. Expect things to not work quite right and there to be significant changes and breaking public API updates as development progresses. Contributions and feedback are welcome, but please be aware that the codebase is still evolving rapidly.
 
+> [!NOTE]
+> This is the maintained Vana360 project fork. Its maintained branch is
+> `vana360-sdk`; `main` remains an unmodified mirror of upstream ReXGlue.
+> The upstream project links below are preserved for attribution and upstream
+> releases.
+
 <h1 align="center">
   <br>
   <a href="https://github.com/rexglue/rexglue-sdk">
@@ -27,7 +33,6 @@ Latest SDK builds and releases are published on [GitHub Releases](https://github
 | Channel | CI | Download |
 | --- | --- | --- |
 | Release | [![win-amd64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-win-amd64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-win-amd64.yaml) [![linux-amd64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-amd64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-amd64.yaml) [![linux-arm64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-aarch64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-aarch64.yaml) | [Latest stable](https://github.com/rexglue/rexglue-sdk/releases/latest) |
-| Nightly | [![nightly](https://github.com/rexglue/rexglue-sdk/actions/workflows/nightly.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/nightly.yaml) | [Latest pre-release](https://github.com/rexglue/rexglue-sdk/releases?q=prerelease%3Atrue) |
 
 ## Quickstart
 
