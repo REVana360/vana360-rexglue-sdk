@@ -64,6 +64,22 @@ if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/
         PROPERTIES COMPILE_OPTIONS "{{ cmake_var("REXGLUE_RECOMP_OPTIONS") }}")
 endif()
 
+# Collect DLL sources in function scope so their generated source lists do not
+# replace the entrypoint GENERATED_SOURCES value.
+set(REXGLUE_DLL_GENERATED_SOURCES "")
+function(rexglue_collect_dll_generated_sources source_list)
+    include("{{ cmake_var("source_list") }}")
+    list(APPEND REXGLUE_DLL_GENERATED_SOURCES {{ cmake_var("GENERATED_SOURCES") }})
+    set(REXGLUE_DLL_GENERATED_SOURCES
+        {{ cmake_var("REXGLUE_DLL_GENERATED_SOURCES") }} PARENT_SCOPE)
+endfunction()
+{% for mod in modules %}
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ mod.out_directory_path }}/sources.cmake")
+    rexglue_collect_dll_generated_sources(
+        "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ mod.out_directory_path }}/sources.cmake")
+endif()
+{% endfor %}
+
 # The options go on the target as well: CMake compiles the header from its own
 # cmake_pch.hxx.cxx, which carries none of the source properties above, and
 # clang rejects a PCH whose EH mode disagrees with the TU including it.
@@ -117,6 +133,7 @@ endmacro()
 add_custom_command(
     OUTPUT "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.build.stamp"
            {{ cmake_var("REXGLUE_ENTRYPOINT_GENERATED_SOURCES") }}
+           {{ cmake_var("REXGLUE_DLL_GENERATED_SOURCES") }}
     COMMAND $<TARGET_FILE:rex::rexglue> codegen {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ names.snake_case }}_manifest.toml
     DEPFILE "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/codegen.d"
     WORKING_DIRECTORY {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}

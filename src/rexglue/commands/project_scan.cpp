@@ -46,7 +46,8 @@ bool IsSourceExtension(const fs::path& p) {
 }  // namespace
 
 std::string RenderRexglueCmake(std::string_view project_name, std::string_view sdk_version,
-                               std::string_view entrypoint_out_dir) {
+                               std::string_view entrypoint_out_dir,
+                               const std::vector<std::string>& module_out_dirs) {
   rex::codegen::TemplateRegistry registry;
   auto names = parse_app_name(std::string(project_name));
   nlohmann::json data = {
@@ -54,13 +55,20 @@ std::string RenderRexglueCmake(std::string_view project_name, std::string_view s
       {"sdk_version", std::string(sdk_version)},
       {"entrypoint_out_dir", std::string(entrypoint_out_dir)},
   };
+  auto& modules = data["modules"];
+  modules = nlohmann::json::array();
+  for (const auto& out_dir : module_out_dirs) {
+    modules.push_back({{"out_directory_path", out_dir}});
+  }
   return registry.render("init/rexglue_cmake", data.dump());
 }
 
 bool RefreshGeneratedGlue(const fs::path& project_root, std::string_view project_name,
-                          std::string_view sdk_version, std::string_view entrypoint_out_dir) {
+                          std::string_view sdk_version, std::string_view entrypoint_out_dir,
+                          const std::vector<std::string>& module_out_dirs) {
   fs::path target = project_root / "generated" / "rexglue.cmake";
-  std::string rendered = RenderRexglueCmake(project_name, sdk_version, entrypoint_out_dir);
+  std::string rendered =
+      RenderRexglueCmake(project_name, sdk_version, entrypoint_out_dir, module_out_dirs);
 
   std::error_code ec;
   if (fs::exists(target, ec) && read_file(target) == rendered) {

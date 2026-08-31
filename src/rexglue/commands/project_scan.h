@@ -29,12 +29,14 @@ struct SourceWarning {
 };
 
 std::string RenderRexglueCmake(std::string_view project_name, std::string_view sdk_version,
-                               std::string_view entrypoint_out_dir);
+                               std::string_view entrypoint_out_dir,
+                               const std::vector<std::string>& module_out_dirs);
 
 /// Rewrite generated/rexglue.cmake when it differs from what the installed SDK
 /// renders. Returns true when the file was rewritten.
 bool RefreshGeneratedGlue(const std::filesystem::path& project_root, std::string_view project_name,
-                          std::string_view sdk_version, std::string_view entrypoint_out_dir);
+                          std::string_view sdk_version, std::string_view entrypoint_out_dir,
+                          const std::vector<std::string>& module_out_dirs);
 
 /// Source files still including headers this run no longer emits.
 std::vector<SourceWarning> ScanStaleIncludes(

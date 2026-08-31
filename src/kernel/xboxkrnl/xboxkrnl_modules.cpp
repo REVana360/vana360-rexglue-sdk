@@ -181,11 +181,10 @@ u32 XexGetProcedureAddress_entry(mapped_void hmodule, u32 ordinal, mapped_u32 ou
       *out_function_ptr = ptr;
       result = X_STATUS_SUCCESS;
       if (is_string_name) {
-        REXKRNL_TRACE("XexGetProcedureAddress('{}', '{}') -> {:08X}", string_name,
-                      module->name(), ptr);
+        REXKRNL_TRACE("XexGetProcedureAddress('{}', '{}') -> {:08X}", string_name, module->name(),
+                      ptr);
       } else {
-        REXKRNL_TRACE("XexGetProcedureAddress({}, '{}') -> {:08X}", ordinal,
-                      module->name(), ptr);
+        REXKRNL_TRACE("XexGetProcedureAddress({}, '{}') -> {:08X}", ordinal, module->name(), ptr);
         if (REXCVAR_GET(guest_network_trace)) {
           REXKRNL_INFO(
               "Guest export resolved: module={} ordinal={} target={:08X} "

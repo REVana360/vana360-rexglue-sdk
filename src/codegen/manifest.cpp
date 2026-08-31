@@ -23,6 +23,8 @@
 #include <rex/logging.h>
 #include <rex/system/guest_path.h>
 
+#include "file_io.h"
+
 namespace rex::codegen {
 
 std::string CanonicalizeModuleGuestPath(std::string_view path, std::string_view project_name) {
@@ -233,6 +235,17 @@ bool ManifestConfig::WriteSdkVersionStamp(const std::filesystem::path& path,
     lines.push_back(stamp_line);
   }
 
+  std::string stamped;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    stamped += lines[i];
+    if (i + 1 < lines.size())
+      stamped += '\n';
+  }
+  stamped += '\n';
+
+  if (auto existing = ReadFileBytes(path); existing && *existing == stamped)
+    return true;
+
   auto tmp_path = path;
   tmp_path += ".tmp";
   {
@@ -241,12 +254,7 @@ bool ManifestConfig::WriteSdkVersionStamp(const std::filesystem::path& path,
       REXLOG_ERROR("Failed to open manifest tmp for writing: {}", tmp_path.string());
       return false;
     }
-    for (size_t i = 0; i < lines.size(); ++i) {
-      out << lines[i];
-      if (i + 1 < lines.size())
-        out << '\n';
-    }
-    out << '\n';
+    out << stamped;
     if (!out.good()) {
       REXLOG_ERROR("Failed while writing manifest tmp: {}", tmp_path.string());
       std::error_code ignore;

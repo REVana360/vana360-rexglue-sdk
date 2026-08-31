@@ -101,8 +101,7 @@ TEST_CASE("Guest networking can block host socket creation", "[system][xsocket]"
   REXCVAR_SET(guest_network_enabled, false);
 
   rex::system::XSocket socket(nullptr);
-  CHECK(socket.Initialize(rex::system::XSocket::X_AF_INET,
-                          rex::system::XSocket::X_SOCK_STREAM,
+  CHECK(socket.Initialize(rex::system::XSocket::X_AF_INET, rex::system::XSocket::X_SOCK_STREAM,
                           rex::system::XSocket::X_IPPROTO_TCP) == X_STATUS_UNSUCCESSFUL);
   CHECK(socket.native_handle() == uint64_t(-1));
 
@@ -112,15 +111,13 @@ TEST_CASE("Guest networking can block host socket creation", "[system][xsocket]"
 TEST_CASE("Network send hooks receive an owned copy", "[system][xsocket]") {
   constexpr std::array<uint8_t, 4> source{1, 2, 3, 4};
   rex::NetworkHooks hooks;
-  hooks.before_send = [](uint32_t caller, uint16_t peer_port,
-                         std::span<uint8_t> bytes) {
+  hooks.before_send = [](uint32_t caller, uint16_t peer_port, std::span<uint8_t> bytes) {
     CHECK(caller == 0x1234);
     CHECK(peer_port == 54001);
     bytes[1] = 0xAA;
   };
 
-  const auto transformed =
-      rex::ApplyNetworkSendHook(hooks, 0x1234, 54001, source);
+  const auto transformed = rex::ApplyNetworkSendHook(hooks, 0x1234, 54001, source);
   CHECK(source[1] == 2);
   CHECK(transformed[1] == 0xAA);
 }
@@ -128,9 +125,7 @@ TEST_CASE("Network send hooks receive an owned copy", "[system][xsocket]") {
 TEST_CASE("Network send consume hooks see transformed bytes", "[system][xsocket]") {
   constexpr std::array<uint8_t, 4> source{1, 2, 3, 4};
   rex::NetworkHooks hooks;
-  hooks.before_send = [](uint32_t, uint16_t, std::span<uint8_t> bytes) {
-    bytes[1] = 0xAA;
-  };
+  hooks.before_send = [](uint32_t, uint16_t, std::span<uint8_t> bytes) { bytes[1] = 0xAA; };
 
   bool consumed = false;
   hooks.consume_send = [&consumed](uint32_t caller, uint16_t peer_port,
@@ -143,13 +138,10 @@ TEST_CASE("Network send consume hooks see transformed bytes", "[system][xsocket]
     return true;
   };
 
-  const auto transformed =
-      rex::ApplyNetworkSendHook(hooks, 0x1234, 54001, source);
+  const auto transformed = rex::ApplyNetworkSendHook(hooks, 0x1234, 54001, source);
   CHECK(rex::ConsumeNetworkSendHook(hooks, 0x1234, 54001, transformed));
   CHECK(consumed);
 
-  hooks.consume_send = [](uint32_t, uint16_t, std::span<const uint8_t>) {
-    return false;
-  };
+  hooks.consume_send = [](uint32_t, uint16_t, std::span<const uint8_t>) { return false; };
   CHECK_FALSE(rex::ConsumeNetworkSendHook(hooks, 0x1234, 54001, transformed));
 }

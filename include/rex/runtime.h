@@ -78,8 +78,7 @@ struct NetworkHooks {
 };
 
 std::vector<uint8_t> ApplyNetworkSendHook(const NetworkHooks& hooks, uint32_t caller,
-                                          uint16_t peer_port,
-                                          std::span<const uint8_t> source);
+                                          uint16_t peer_port, std::span<const uint8_t> source);
 bool ConsumeNetworkSendHook(const NetworkHooks& hooks, uint32_t caller, uint16_t peer_port,
                             std::span<const uint8_t> bytes);
 

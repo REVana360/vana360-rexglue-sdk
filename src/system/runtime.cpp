@@ -37,8 +37,7 @@ REXCVAR_DEFINE_STRING(metadata_root, "", "Runtime", "Override metadata path");
 namespace rex {
 
 std::vector<uint8_t> ApplyNetworkSendHook(const NetworkHooks& hooks, uint32_t caller,
-                                          uint16_t peer_port,
-                                          std::span<const uint8_t> source) {
+                                          uint16_t peer_port, std::span<const uint8_t> source) {
   std::vector<uint8_t> copy(source.begin(), source.end());
   if (hooks.before_send) {
     hooks.before_send(caller, peer_port, copy);

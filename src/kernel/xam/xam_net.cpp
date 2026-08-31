@@ -65,14 +65,11 @@ constexpr u32 ToObjectSocketHandle(u32 socket_handle) {
 }
 
 object_ref<XSocket> LookupSocket(u32 socket_handle) {
-  return REX_KERNEL_OBJECTS()->LookupObject<XSocket>(
-      ToObjectSocketHandle(socket_handle));
+  return REX_KERNEL_OBJECTS()->LookupObject<XSocket>(ToObjectSocketHandle(socket_handle));
 }
 
-static_assert(static_cast<i32>(
-                  ToGuestSocketHandle(XObject::kHandleBase + 4)) >= 0);
-static_assert(ToObjectSocketHandle(
-                  ToGuestSocketHandle(XObject::kHandleBase + 4)) ==
+static_assert(static_cast<i32>(ToGuestSocketHandle(XObject::kHandleBase + 4)) >= 0);
+static_assert(ToObjectSocketHandle(ToGuestSocketHandle(XObject::kHandleBase + 4)) ==
               XObject::kHandleBase + 4);
 
 // https://github.com/G91/TitanOffLine/blob/1e692d9bb9dfac386d08045ccdadf4ae3227bb5e/xkelib/xam/xamNet.h
@@ -301,8 +298,7 @@ u32 NetDll_WSAStartup_entry(u32 caller, u16 version, ppc_ptr_t<X_WSADATA> data_p
 #endif
 
   if (REXCVAR_GET(guest_network_trace)) {
-    REXKRNL_INFO("Guest WSA startup: version={:04X} result={} caller={:08X}",
-                 version, ret, caller);
+    REXKRNL_INFO("Guest WSA startup: version={:04X} result={} caller={:08X}", version, ret, caller);
   }
 
   // DEBUG
@@ -550,21 +546,18 @@ u32 NetDll_XNetDnsLookup_entry(u32 caller, mapped_string host, u32 event_handle,
     dns->status = 1;  // non-zero = error
     if (host) {
       if (REXCVAR_GET(guest_network_trace)) {
-        REXKRNL_INFO("Guest XNet DNS lookup requested: host={} caller={:08X}",
-                     host.value(), caller);
+        REXKRNL_INFO("Guest XNet DNS lookup requested: host={} caller={:08X}", host.value(),
+                     caller);
       }
-      if (auto* runtime = Runtime::instance();
-          runtime && runtime->network_hooks().resolve_ipv4) {
-        const auto resolved =
-            runtime->network_hooks().resolve_ipv4(caller, host.value());
+      if (auto* runtime = Runtime::instance(); runtime && runtime->network_hooks().resolve_ipv4) {
+        const auto resolved = runtime->network_hooks().resolve_ipv4(caller, host.value());
         if (resolved) {
           dns->status = 0;
           dns->cina = 1;
           dns->aina[0].s_addr = htonl(*resolved);
           if (REXCVAR_GET(guest_network_trace)) {
-            REXKRNL_INFO(
-                "Guest XNet DNS lookup: host={} caller={:08X} address={:08X}",
-                host.value(), caller, *resolved);
+            REXKRNL_INFO("Guest XNet DNS lookup: host={} caller={:08X} address={:08X}",
+                         host.value(), caller, *resolved);
           }
         }
       }
@@ -644,18 +637,16 @@ u32 NetDll_socket_entry(u32 caller, u32 af, u32 type, u32 protocol) {
     uint32_t error = xboxkrnl::xeRtlNtStatusToDosError(result);
     XThread::SetLastError(error);
     if (REXCVAR_GET(guest_network_trace)) {
-      REXKRNL_INFO(
-          "Guest socket failed: family={} type={} protocol={} caller={:08X}",
-          af, type, protocol, caller);
+      REXKRNL_INFO("Guest socket failed: family={} type={} protocol={} caller={:08X}", af, type,
+                   protocol, caller);
     }
     return -1;
   }
 
   const u32 socket_handle = ToGuestSocketHandle(socket->handle());
   if (REXCVAR_GET(guest_network_trace)) {
-    REXKRNL_INFO(
-        "Guest socket created: handle={:08X} family={} type={} protocol={} caller={:08X}",
-        socket_handle, af, type, protocol, caller);
+    REXKRNL_INFO("Guest socket created: handle={:08X} family={} type={} protocol={} caller={:08X}",
+                 socket_handle, af, type, protocol, caller);
   }
   return socket_handle;
 }
@@ -741,13 +732,11 @@ u32 NetDll_ioctlsocket_entry(u32 caller, u32 socket_handle, u32 cmd, mapped_void
     REXKRNL_INFO(
         "Guest socket ioctl: handle={:08X} command={:08X} caller={:08X} "
         "status={:08X} native_error={} scalar={}",
-        socket_handle, cmd, caller, static_cast<uint32_t>(status), native_error,
-        native_arg);
+        socket_handle, cmd, caller, static_cast<uint32_t>(status), native_error, native_arg);
   }
   if (XFAILED(status)) {
-    XThread::SetLastError(native_error != 0
-                              ? native_error
-                              : xboxkrnl::xeRtlNtStatusToDosError(status));
+    XThread::SetLastError(native_error != 0 ? native_error
+                                            : xboxkrnl::xeRtlNtStatusToDosError(status));
     return -1;
   }
 
@@ -782,13 +771,11 @@ u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> nam
   }
 
   N_XSOCKADDR native_name(name);
-  if (auto* runtime = Runtime::instance();
-      runtime && runtime->network_hooks().before_connect) {
+  if (auto* runtime = Runtime::instance(); runtime && runtime->network_hooks().before_connect) {
     runtime->network_hooks().before_connect(caller, native_name, namelen);
   }
   uint16_t peer_port = 0;
-  if (native_name.address_family == XSocket::X_AF_INET &&
-      namelen >= sizeof(N_XSOCKADDR_IN)) {
+  if (native_name.address_family == XSocket::X_AF_INET && namelen >= sizeof(N_XSOCKADDR_IN)) {
     peer_port = reinterpret_cast<N_XSOCKADDR_IN&>(native_name).sin_port;
   }
   X_STATUS status = socket->Connect(&native_name, namelen);
@@ -798,14 +785,12 @@ u32 NetDll_connect_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> nam
   const uint32_t native_error = 0;
 #endif
   if (REXCVAR_GET(guest_network_trace)) {
-    REXKRNL_INFO(
-        "Guest connect: handle={:08X} port={} caller={:08X} status={:08X} native_error={}",
-        socket_handle, peer_port, caller, static_cast<uint32_t>(status), native_error);
+    REXKRNL_INFO("Guest connect: handle={:08X} port={} caller={:08X} status={:08X} native_error={}",
+                 socket_handle, peer_port, caller, static_cast<uint32_t>(status), native_error);
   }
   if (XFAILED(status)) {
-    XThread::SetLastError(native_error != 0
-                              ? native_error
-                              : xboxkrnl::xeRtlNtStatusToDosError(status));
+    XThread::SetLastError(native_error != 0 ? native_error
+                                            : xboxkrnl::xeRtlNtStatusToDosError(status));
     return -1;
   }
 
@@ -887,8 +872,7 @@ struct host_set {
     guest_set->fd_count = 0;
     for (uint32_t i = 0; i < this->count; ++i) {
       auto socket = this->sockets[i];
-      guest_set->fd_array[guest_set->fd_count++] =
-          ToGuestSocketHandle(socket->handle());
+      guest_set->fd_array[guest_set->fd_count++] = ToGuestSocketHandle(socket->handle());
     }
   }
 
@@ -956,10 +940,8 @@ i32 NetDll_select_entry(i32 caller, i32 nfds, ppc_ptr_t<x_fd_set> readfds,
     host_exceptfds.Store(exceptfds);
   }
   if (REXCVAR_GET(guest_network_trace)) {
-    REXKRNL_INFO(
-        "Guest select: read={} write={} except={} caller={:08X} result={}",
-        host_readfds.count, host_writefds.count, host_exceptfds.count, caller,
-        ret);
+    REXKRNL_INFO("Guest select: read={} write={} except={} caller={:08X} result={}",
+                 host_readfds.count, host_writefds.count, host_exceptfds.count, caller, ret);
   }
 
   // TODO(gibbed): modify ret to be what's actually copied to the guest fd_sets?
@@ -986,8 +968,7 @@ u32 NetDll_recv_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 bu
     REXKRNL_INFO(
         "Guest recv: handle={:08X} requested={} received={} port={} "
         "caller={:08X} native_error={}",
-        socket_handle, buf_len, received, socket->peer_port(), caller,
-        error_code);
+        socket_handle, buf_len, received, socket->peer_port(), caller, error_code);
   }
   return received;
 }
@@ -1050,15 +1031,14 @@ u32 NetDll_send_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 bu
   }
 
   auto* runtime = Runtime::instance();
-  if (!runtime || (!runtime->network_hooks().before_send &&
-                   !runtime->network_hooks().consume_send)) {
+  if (!runtime ||
+      (!runtime->network_hooks().before_send && !runtime->network_hooks().consume_send)) {
     return socket->Send(buf_ptr, buf_len, flags);
   }
 
   auto bytes = ApplyNetworkSendHook(
       runtime->network_hooks(), caller, socket->peer_port(),
-      std::span<const uint8_t>(
-          static_cast<const uint8_t*>(buf_ptr.host_address()), buf_len));
+      std::span<const uint8_t>(static_cast<const uint8_t*>(buf_ptr.host_address()), buf_len));
   if (ConsumeNetworkSendHook(runtime->network_hooks(), caller, socket->peer_port(), bytes)) {
     return buf_len;
   }

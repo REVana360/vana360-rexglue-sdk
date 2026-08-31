@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -18,6 +19,7 @@
 #include <vector>
 
 #include <rex/codegen/config.h>
+#include <rex/codegen/manifest.h>
 #include <rex/codegen/output_stamp.h>
 
 namespace fs = std::filesystem;
@@ -148,6 +150,17 @@ TEST_CASE("A stamp from another layout version is rejected", "[output_stamp]") {
       "codegen.stamp", R"({"version": 2, "fingerprint": "abc123", "outputs": ["proj_init.h"]})");
 
   CHECK_FALSE(OutputStamp::Load(path).has_value());
+}
+
+TEST_CASE("Writing an unchanged manifest SDK stamp preserves its timestamp", "[manifest]") {
+  Scratch scratch("manifest_stamp_unchanged");
+  auto path =
+      scratch.WriteFile("project.toml", "[project]\nname = \"sample\"\nsdk_version = \"0.10.0\"\n");
+  const auto original_time = fs::file_time_type::clock::now() - std::chrono::hours(24);
+  fs::last_write_time(path, original_time);
+
+  REQUIRE(ManifestConfig::WriteSdkVersionStamp(path, "0.10.0"));
+  CHECK(fs::last_write_time(path) == original_time);
 }
 
 TEST_CASE("Outputs are up to date when fingerprint matches and files exist", "[output_stamp]") {

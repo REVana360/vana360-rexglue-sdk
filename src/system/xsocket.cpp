@@ -119,8 +119,7 @@ X_STATUS XSocket::IOControl(uint32_t cmd, uint8_t* arg_ptr) {
 }
 
 X_STATUS XSocket::Connect(N_XSOCKADDR* name, int name_len) {
-  if (name->address_family == X_AF_INET &&
-      name_len >= static_cast<int>(sizeof(N_XSOCKADDR_IN))) {
+  if (name->address_family == X_AF_INET && name_len >= static_cast<int>(sizeof(N_XSOCKADDR_IN))) {
     // A nonblocking connect normally reports WSAEWOULDBLOCK while the peer is
     // already fixed. Preserve it for send/receive hooks during completion.
     peer_port_ = reinterpret_cast<N_XSOCKADDR_IN*>(name)->sin_port;
