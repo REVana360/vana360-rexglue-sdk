@@ -1,20 +1,43 @@
-name: Maintained branch checks
+name: Checks
 
 on:
-  workflow_dispatch:
   pull_request:
   push:
-    branches:
-      - vana360-sdk
+    branches: [vana360-sdk]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  repository-checks:
+    name: Repository Checks
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install verification tools
+        run: python -m pip install --disable-pip-version-check -r scripts/requirements-dev.txt
+      - name: Run repository checks
+        shell: pwsh
+        run: .\scripts\verify.ps1
+
   build-win-amd64:
     name: Build and test win-amd64
     uses: ./.github/workflows/_build-platform.yaml
     with:
       platform: win-amd64
-      ref: ${{ github.sha }}
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
       publish_mode: none
