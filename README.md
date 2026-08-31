@@ -2,8 +2,8 @@
 > This project is in early development. Expect things to not work quite right and there to be significant changes and breaking public API updates as development progresses. Contributions and feedback are welcome, but please be aware that the codebase is still evolving rapidly.
 
 > [!NOTE]
-> This is the maintained Vana360 project fork. Its maintained branch is
-> `vana360-sdk`; `main` remains an unmodified mirror of upstream ReXGlue.
+> This is the Vana360-maintained project fork. Changes target `main`; see
+> [CONTRIBUTING.md](CONTRIBUTING.md) for its contribution requirements.
 > The upstream project links below are preserved for attribution and upstream
 > releases.
 
