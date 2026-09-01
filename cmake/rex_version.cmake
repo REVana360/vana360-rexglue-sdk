@@ -4,6 +4,7 @@
 #     FLOOR_MINOR <int>
 #     GIT_DESCRIBE_LONG  <string>   # output of git describe --tags --long ...
 #     GIT_DESCRIBE_EXACT <string>   # output of git describe --tags --exact-match
+#     GIT_HEAD_SHORT     <string>   # output of git rev-parse --short=7 HEAD
 #     BRANCH_NAME        <string>)  # output of git symbolic-ref --short HEAD
 #
 # Emits a CMake-style version string: MAJOR.MINOR[.PATCH[.TWEAK]][-id].
@@ -18,7 +19,7 @@
 #   id is "dev.gSHA" on any branch and "rc.gSHA" on a release/* branch.
 #==========================================================
 function(rex_compute_version out_var)
-    set(one_value FLOOR_MAJOR FLOOR_MINOR GIT_DESCRIBE_LONG GIT_DESCRIBE_EXACT BRANCH_NAME)
+    set(one_value FLOOR_MAJOR FLOOR_MINOR GIT_DESCRIBE_LONG GIT_DESCRIBE_EXACT GIT_HEAD_SHORT BRANCH_NAME)
     cmake_parse_arguments(ARG "" "${one_value}" "" ${ARGN})
 
     if(NOT "${ARG_GIT_DESCRIBE_EXACT}" STREQUAL "")
@@ -30,6 +31,12 @@ function(rex_compute_version out_var)
     endif()
 
     if("${ARG_GIT_DESCRIBE_LONG}" STREQUAL "")
+        if(ARG_GIT_HEAD_SHORT MATCHES "^[0-9a-f]+$")
+            set(${out_var}
+                "${ARG_FLOOR_MAJOR}.${ARG_FLOOR_MINOR}.0.0-dev.g${ARG_GIT_HEAD_SHORT}"
+                PARENT_SCOPE)
+            return()
+        endif()
         message(WARNING
             "rex_compute_version: no v* tag reachable from HEAD. "
             "Falling back to ${ARG_FLOOR_MAJOR}.${ARG_FLOOR_MINOR}.0.0-dev.unknown. "
@@ -120,6 +127,7 @@ function(rex_resolve_version out_var)
             FLOOR_MINOR ${ARG_FLOOR_MINOR}
             GIT_DESCRIBE_LONG ""
             GIT_DESCRIBE_EXACT ""
+            GIT_HEAD_SHORT ""
             BRANCH_NAME "")
         set(${out_var} "${result}" PARENT_SCOPE)
         return()
@@ -152,6 +160,17 @@ function(rex_resolve_version out_var)
     endif()
 
     execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short=7 HEAD
+        WORKING_DIRECTORY "${ARG_SOURCE_DIR}"
+        OUTPUT_VARIABLE head_short
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE head_short_rc)
+    if(NOT head_short_rc EQUAL 0)
+        set(head_short "")
+    endif()
+
+    execute_process(
         COMMAND ${GIT_EXECUTABLE} symbolic-ref --short HEAD
         WORKING_DIRECTORY "${ARG_SOURCE_DIR}"
         OUTPUT_VARIABLE branch_name
@@ -167,6 +186,7 @@ function(rex_resolve_version out_var)
         FLOOR_MINOR ${ARG_FLOOR_MINOR}
         GIT_DESCRIBE_LONG "${describe_long}"
         GIT_DESCRIBE_EXACT "${describe_exact}"
+        GIT_HEAD_SHORT "${head_short}"
         BRANCH_NAME "${branch_name}")
     set(${out_var} "${result}" PARENT_SCOPE)
 endfunction()
