@@ -12,18 +12,9 @@ on:
         required: true
         type: string
       publish_mode:
-        description: "none | artifact | release"
+        description: "none | release"
         required: true
         type: string
-      artifact_name:
-        description: "Artifact name when publish_mode is 'artifact'"
-        required: false
-        type: string
-        default: ""
-    outputs:
-      version:
-        description: "Derived build version string (REXGLUE_VERSION_STRING)"
-        value: ${{ jobs.build.outputs.version }}
 
 jobs:
   build:
@@ -34,8 +25,6 @@ jobs:
     # checked-in config_linux_aarch64.h sets HAVE_ARC4RANDOM, and that call
     # needs glibc 2.36.
     container: ${{ inputs.platform == 'linux-amd64' && fromJSON('{"image":"ubuntu:22.04"}') || fromJSON('null') }}
-    outputs:
-      version: ${{ steps.version.outputs.v }}
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
@@ -48,7 +37,7 @@ jobs:
             ca-certificates curl wget gnupg git git-lfs
           git config --global --add safe.directory '*'
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           ref: ${{ inputs.ref }}
           submodules: recursive
@@ -118,7 +107,7 @@ jobs:
             libasound2-dev libpulse-dev libpipewire-0.3-dev
 
       - name: Set up sccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.24
         with:
           variant: sccache
           key: ${{ inputs.platform }}
@@ -161,32 +150,23 @@ jobs:
           echo "v=${v}" >> "$GITHUB_OUTPUT"
 
       - name: Package (Windows)
-        if: inputs.publish_mode != 'none' && inputs.platform == 'win-amd64'
+        if: inputs.publish_mode == 'release' && inputs.platform == 'win-amd64'
         shell: bash
         run: |
           cd out/install
           7z a "rexglue-sdk-${{ steps.version.outputs.v }}-${{ inputs.platform }}.zip" ${{ inputs.platform }}
 
       - name: Package (Unix)
-        if: inputs.publish_mode != 'none' && inputs.platform != 'win-amd64'
+        if: inputs.publish_mode == 'release' && inputs.platform != 'win-amd64'
         run: |
           cd out/install
           zip -r "rexglue-sdk-${{ steps.version.outputs.v }}-${{ inputs.platform }}.zip" ${{ inputs.platform }}
 
       - name: Upload as release asset
         if: inputs.publish_mode == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: out/install/rexglue-sdk-*-${{ inputs.platform }}.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload as workflow artifact
-        if: inputs.publish_mode == 'artifact'
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: out/install/rexglue-sdk-*-${{ inputs.platform }}.zip
-          if-no-files-found: error
-          retention-days: 14
