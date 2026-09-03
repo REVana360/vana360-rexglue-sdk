@@ -15,7 +15,7 @@ python -m pip install -r scripts/requirements-dev.txt
 ```
 
 The check validates formatting with clang-format 22, Vulkan dependency pins,
-Python tests, the current commit subject, and Git whitespace.
+Python tests, the commit subject, and Git whitespace.
 
 Build or platform changes also require the affected CMake preset and tests.
 State which configurations were exercised when submitting the change.
