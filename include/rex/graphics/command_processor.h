@@ -248,7 +248,8 @@ class CommandProcessor {
   uint32_t primary_buffer_ptr_ = 0;
   uint32_t primary_buffer_size_ = 0;
 
-  uint32_t read_ptr_index_ = 0;
+  std::mutex ring_buffer_mutex_;
+  std::atomic<uint32_t> read_ptr_index_ = 0;
   uint32_t read_ptr_update_freq_ = 0;
   uint32_t read_ptr_writeback_ptr_ = 0;
 

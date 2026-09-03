@@ -236,16 +236,24 @@ void CommandProcessor::WorkerThreadMain() {
         continue;
       }
     }
-    assert_true(read_ptr_index_ != write_ptr_index);
+    {
+      std::scoped_lock ring_buffer_lock(ring_buffer_mutex_);
+      write_ptr_index = write_ptr_index_.load();
+      const uint32_t read_ptr_index = read_ptr_index_.load();
+      if (write_ptr_index == 0xBAADF00D || read_ptr_index == write_ptr_index) {
+        continue;
+      }
 
-    // Execute. Note that we handle wraparound transparently.
-    read_ptr_index_ = ExecutePrimaryBuffer(read_ptr_index_, write_ptr_index);
+      // Execute. Note that we handle wraparound transparently.
+      const uint32_t new_read_ptr_index = ExecutePrimaryBuffer(read_ptr_index, write_ptr_index);
+      read_ptr_index_.store(new_read_ptr_index);
 
-    // TODO(benvanik): use reader->Read_update_freq_ and only issue after moving
-    //     that many indices.
-    if (read_ptr_writeback_ptr_) {
-      memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(read_ptr_writeback_ptr_),
-                                       read_ptr_index_);
+      // TODO(benvanik): use reader->Read_update_freq_ and only issue after moving
+      //     that many indices.
+      if (read_ptr_writeback_ptr_) {
+        memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(read_ptr_writeback_ptr_),
+                                         new_read_ptr_index);
+      }
     }
 
     // FIXME: We're supposed to process the WAIT_UNTIL register at this point,
@@ -284,7 +292,7 @@ bool CommandProcessor::Save(::rex::stream::ByteStream* stream) {
 
   stream->Write<uint32_t>(primary_buffer_ptr_);
   stream->Write<uint32_t>(primary_buffer_size_);
-  stream->Write<uint32_t>(read_ptr_index_);
+  stream->Write<uint32_t>(read_ptr_index_.load());
   stream->Write<uint32_t>(read_ptr_update_freq_);
   stream->Write<uint32_t>(read_ptr_writeback_ptr_);
   stream->Write<uint32_t>(write_ptr_index_.load());
@@ -297,7 +305,7 @@ bool CommandProcessor::Restore(::rex::stream::ByteStream* stream) {
 
   primary_buffer_ptr_ = stream->Read<uint32_t>();
   primary_buffer_size_ = stream->Read<uint32_t>();
-  read_ptr_index_ = stream->Read<uint32_t>();
+  read_ptr_index_.store(stream->Read<uint32_t>());
   read_ptr_update_freq_ = stream->Read<uint32_t>();
   read_ptr_writeback_ptr_ = stream->Read<uint32_t>();
   write_ptr_index_.store(stream->Read<uint32_t>());
@@ -312,7 +320,12 @@ bool CommandProcessor::SetupContext() {
 void CommandProcessor::ShutdownContext() {}
 
 void CommandProcessor::InitializeRingBuffer(uint32_t ptr, uint32_t size_log2) {
-  read_ptr_index_ = 0;
+  std::scoped_lock ring_buffer_lock(ring_buffer_mutex_);
+  // Recompiled titles may replace the GPU ringbuffer while the command worker
+  // remains alive. Do not let the new buffer inherit the previous buffer's
+  // published write pointer.
+  write_ptr_index_.store(0);
+  read_ptr_index_.store(0);
   primary_buffer_ptr_ = ptr;
   primary_buffer_size_ = uint32_t(1) << (size_log2 + 3);
 }
