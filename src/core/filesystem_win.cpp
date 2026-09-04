@@ -122,7 +122,7 @@ class Win32FileHandle : public FileHandle {
   bool Read(size_t file_offset, void* buffer, size_t buffer_length,
             size_t* out_bytes_read) override {
     *out_bytes_read = 0;
-    OVERLAPPED overlapped;
+    OVERLAPPED overlapped{};
     overlapped.Pointer = (PVOID)file_offset;
     overlapped.hEvent = NULL;
     DWORD bytes_read = 0;
@@ -143,7 +143,7 @@ class Win32FileHandle : public FileHandle {
   bool Write(size_t file_offset, const void* buffer, size_t buffer_length,
              size_t* out_bytes_written) override {
     *out_bytes_written = 0;
-    OVERLAPPED overlapped;
+    OVERLAPPED overlapped{};
     overlapped.Pointer = (PVOID)file_offset;
     overlapped.hEvent = NULL;
     DWORD bytes_written = 0;

@@ -247,10 +247,6 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
         }
       }
 
-      if (!file->is_synchronous() && result != X_STATUS_END_OF_FILE) {
-        result = X_STATUS_PENDING;
-      }
-
       // Mark that we should signal the event now. We do this after
       // we have written the info out.
       signal_event = true;
@@ -339,10 +335,6 @@ u32 NtReadFileScatter_entry(u32 file_handle, u32 event_handle, mapped_void apc_r
           thread->EnqueueApc(static_cast<uint32_t>(apc_routine_ptr) & ~1u,
                              apc_context.guest_address(), io_status_block.guest_address(), 0);
         }
-      }
-
-      if (!file->is_synchronous()) {
-        result = X_STATUS_PENDING;
       }
 
       // Mark that we should signal the event now. We do this after
